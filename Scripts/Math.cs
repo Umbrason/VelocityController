@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public static class Math
+internal static class Math
 {
     public static float sMin(float a, float b, float k)
     {
@@ -16,7 +16,7 @@ public static class Math
 
 }
 
-public static class VectorMath
+internal static class VectorMath
 {
 
     public static Vector3 Min(this IEnumerable<Vector3> vectors)

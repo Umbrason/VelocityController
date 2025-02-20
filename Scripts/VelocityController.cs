@@ -108,9 +108,6 @@ public class VelocityController : MonoBehaviour
         }
     }
 
-
-
-
     //proplems:
     //how should I handle multiple overwrite movements with the same priority?    
     private void ProcessMovementOverrides(ref Vector3 currentVelocity)
