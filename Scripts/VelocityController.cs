@@ -7,8 +7,12 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody))]
 public class VelocityController : MonoBehaviour
 {
-    private Rigidbody rb;
+    private Rigidbody rb => cached_rb ??= GetComponent<Rigidbody>();
+    private Rigidbody cached_rb;
     public Vector3 CurrentVelocity { get => rb.velocity; }
+    private Coroutine PostFixedUpdateRoutine;
+    public Vector3 PhysicsUpdateVelocityChange { get; private set; }
+    private Vector3 lastDesiredVelocity;
 
     public struct MovementOverride
     {
@@ -22,25 +26,25 @@ public class VelocityController : MonoBehaviour
 
         public MovementOverride(Vector3 direction,
                                 Func<float, float> speedCurve,
-                                VelocityBlendMode blendMode = VelocityBlendMode.MaximumMagnitude,
+                                VelocityBlendMode blendMode = VelocityBlendMode.Overwrite,
                                 VelocityChannelMask channelMask = VelocityChannelMask.XYZ)
         {
             this.direction = direction;
             this.blendMode = blendMode;
             this.speedCurve = speedCurve;
             this.channelMask = channelMask;
-            OnCompleteActions = () => {};
+            OnCompleteActions = () => { };
         }
         public MovementOverride(Vector3 direction,
                                 float constantSpeed,
-                                VelocityBlendMode blendMode = VelocityBlendMode.MaximumMagnitude,
+                                VelocityBlendMode blendMode = VelocityBlendMode.Overwrite,
                                 VelocityChannelMask channelMask = VelocityChannelMask.XYZ)
         : this(direction, (t) => constantSpeed, blendMode, channelMask) { }
 
         public MovementOverride(Vector3 desiredVelocity,
-                                VelocityBlendMode blendMode = VelocityBlendMode.MaximumMagnitude,
+                                VelocityBlendMode blendMode = VelocityBlendMode.Overwrite,
                                 VelocityChannelMask channelMask = VelocityChannelMask.XYZ) : this(desiredVelocity.normalized, (t) => desiredVelocity.magnitude, blendMode, channelMask) { }
-        
+
         public MovementOverride OnComplete(Action callback)
         {
             OnCompleteActions += callback;
@@ -65,13 +69,10 @@ public class VelocityController : MonoBehaviour
             this.duration = duration;
         }
     }
-    private Dictionary<int, List<MovementOverrideInstance>> movementOverrideInstances = new Dictionary<int, List<MovementOverrideInstance>>();
+    private Dictionary<int, List<MovementOverrideInstance>> movementOverrideInstances = new Dictionary<int, List<MovementOverrideInstance>>();    
 
-    void Start()
-    {
-        // Grab self's Rigidbody
-        rb = GetComponent<Rigidbody>();
-    }
+    void OnEnable() => PostFixedUpdateRoutine = StartCoroutine(PostFixedUpdate());
+    void OnDisable() => StopCoroutine(PostFixedUpdateRoutine);
 
     public void Clear() => movementOverrideInstances.Clear();
 
@@ -88,12 +89,23 @@ public class VelocityController : MonoBehaviour
         //apply movement overrides onto current movement
         var desiredVelocity = CurrentVelocity;
         ProcessMovementOverrides(ref desiredVelocity);
-
-        //apply such an impulse to the rb, that it reaches the desired velocity
-        rb.AddForce((desiredVelocity - rb.velocity), ForceMode.VelocityChange);
-
         //remove expired entries (after applying their effects at least once)
         RemoveExpiredMovementOverrides();
+
+        lastDesiredVelocity = desiredVelocity;
+
+        //apply such an impulse to the rb, that it reaches the desired velocity
+        rb.AddForce((desiredVelocity - CurrentVelocity), ForceMode.VelocityChange);
+    }
+
+    private IEnumerator PostFixedUpdate()
+    {
+        var WaitForFixedUpdate = new WaitForFixedUpdate();
+        while (true)
+        {
+            PhysicsUpdateVelocityChange = CurrentVelocity - lastDesiredVelocity;
+            yield return WaitForFixedUpdate;
+        }
     }
 
 
@@ -121,13 +133,16 @@ public class VelocityController : MonoBehaviour
                     case VelocityBlendMode.Additive:
                         currentVelocity += maskedVelocity;
                         break;
-                    case VelocityBlendMode.MaximumMagnitude: //pick components so the resulting velocity has the maximum possible magnitude
+                    case VelocityBlendMode.Multiplicative:
+                        currentVelocity = Vector3.Scale(currentVelocity, maskedVelocity + (Vector3.one - movementOverrideData.ChannelMaskVector));
+                        break;
+                    case VelocityBlendMode.MaximumMagnitude: //pick components so the resulting velocity has the maximum possible magnitude                        
                         currentVelocity = VectorMath.MaxMagnitude(currentVelocity, maskedVelocity);
                         break;
                     case VelocityBlendMode.Overwrite: //overwrite all lower priority movement for this physics step                        
                         var channelsOverriddenMask = Vector3.one - new Vector3(((int)channelsOverridden & 0b001), ((int)channelsOverridden & 0b010) >> 1, ((int)channelsOverridden & 0b100) >> 2);
                         var combinedMask = Vector3.Scale(channelsOverriddenMask, movementOverrideData.ChannelMaskVector);
-                        currentVelocity += Vector3.Scale(newMovement - startVelocity, combinedMask);
+                        currentVelocity = Vector3.Scale(newMovement, combinedMask) + Vector3.Scale(currentVelocity, Vector3.one - combinedMask);
                         channelsOverridden |= (int)movementOverrideData.channelMask;
                         if (channelsOverridden == 0b111)
                             return; // we can exit early, because we sorted by priority
@@ -162,4 +177,4 @@ public enum VelocityChannelMask
     XYZ = 0b111
 }
 
-public enum VelocityBlendMode { Additive, Overwrite, MaximumMagnitude }
+public enum VelocityBlendMode { Additive, Overwrite, MaximumMagnitude, Multiplicative }
