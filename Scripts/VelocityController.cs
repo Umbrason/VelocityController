@@ -113,9 +113,8 @@ public class VelocityController : MonoBehaviour
     private void ProcessMovementOverrides(ref Vector3 currentVelocity)
     {
         var startVelocity = currentVelocity; //memorize start movement in case a movementOverride has its blend mode set to overwrite
-        var channelsOverridden = 0;
         //iterate over remaining entries
-        foreach (var priority in movementOverrideInstances.Keys.OrderByDescending(x => x))
+        foreach (var priority in movementOverrideInstances.Keys.OrderBy(x => x))
             foreach (var movementOverrideInstance in movementOverrideInstances[priority])
             {
                 var t = Mathf.Clamp01((Time.time - movementOverrideInstance.startTime) / movementOverrideInstance.duration);
@@ -133,16 +132,11 @@ public class VelocityController : MonoBehaviour
                     case VelocityBlendMode.Multiplicative:
                         currentVelocity = Vector3.Scale(currentVelocity, maskedVelocity + (Vector3.one - movementOverrideData.ChannelMaskVector));
                         break;
-                    case VelocityBlendMode.MaximumMagnitude: //pick components so the resulting velocity has the maximum possible magnitude                        
+                    case VelocityBlendMode.MaximumMagnitude: //pick components so the resulting velocity has the maximum possible magnitude
                         currentVelocity = VectorMath.MaxMagnitude(currentVelocity, maskedVelocity);
                         break;
-                    case VelocityBlendMode.Overwrite: //overwrite all lower priority movement for this physics step                        
-                        var channelsOverriddenMask = Vector3.one - new Vector3(((int)channelsOverridden & 0b001), ((int)channelsOverridden & 0b010) >> 1, ((int)channelsOverridden & 0b100) >> 2);
-                        var combinedMask = Vector3.Scale(channelsOverriddenMask, movementOverrideData.ChannelMaskVector);
-                        currentVelocity = Vector3.Scale(newMovement, combinedMask) + Vector3.Scale(currentVelocity, Vector3.one - combinedMask);
-                        channelsOverridden |= (int)movementOverrideData.channelMask;
-                        if (channelsOverridden == 0b111)
-                            return; // we can exit early, because we sorted by priority
+                    case VelocityBlendMode.Overwrite: //overwrite all lower priority movement for this physics step
+                        currentVelocity = Vector3.Scale(newMovement, movementOverrideData.ChannelMaskVector) + Vector3.Scale(currentVelocity, Vector3.one - movementOverrideData.ChannelMaskVector);
                         break;
                 }
             }
